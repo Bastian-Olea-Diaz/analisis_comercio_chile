@@ -3,26 +3,82 @@
 Informe técnico del proyecto. Registra qué se hizo, por qué y qué alternativas se descartaron en cada etapa.
 Los resultados numéricos provienen de los notebooks en `notebooks/`.
 
+## Marco de trabajo: CRISP-DM
+
+El proyecto se organizó según el ciclo CRISP-DM (*Cross-Industry Standard Process for Data Mining*). Cada
+sección de este informe corresponde a una fase:
+
+| Fase CRISP-DM | Secciones | Entregables |
+|---|---|---|
+| 1. Comprensión del negocio | §1 | Preguntas, objetivos analíticos y criterios de éxito |
+| 2. Comprensión de los datos | §2, §3, §4 | `download.py`, `ingest.py`, `references.py`; `notebooks/01_eda` |
+| 3. Preparación de los datos | §5, §6 | `clean.py`, `features.py`; panel producto × país × mes |
+| 4. Modelado | §7, §8, §9 | `graph.py`, `forecast.py`, `classify.py`; `notebooks/02`–`04` |
+| 5. Evaluación | §10 (técnica), §12 (frente a los objetivos) | Tests anti-leakage, baselines, `notebooks/05` |
+| 6. Despliegue | §11, §13 | Monitoreo de drift (`drift.py`, `notebooks/06`), repositorio, informe y figuras |
+
+CRISP-DM no es lineal: los hallazgos de una fase obligan a volver a otra. En este proyecto esas vueltas
+cambiaron el alcance y el diseño de forma concreta:
+
+| Vuelta | Qué la provocó | Qué cambió |
+|---|---|---|
+| Datos → Negocio | Solo 8 meses de datos (ene–ago 2026) | Se amplió el alcance a 2024–2026 para poder modelar estacionalidad y validar en el tiempo (§2.1) |
+| Datos → Negocio | Los IDs de empresa se renumeran cada mes (§2.5) | Se descartaron las preguntas por empresa; la unidad de análisis pasó a ser producto × país |
+| Datos ↔ Preparación | Defectos en los archivos crudos detectados al ingerir (§3.2–3.3) | Reglas de reparación en la ingesta y de imputación exacta en la limpieza (R2) |
+| Modelado → Preparación | Un modelo global en escala absoluta "encogía" las series grandes (§9.1) | Features y objetivo relativos al nivel reciente |
+| Evaluación → Preparación | Un test automatizado detectó leakage en la codificación de países (§6) | Ranking de socios calculado solo con el pasado; resultados recalculados |
+| Evaluación → Modelado | L2 en log subestimaba 46%; el grafo aportaba solo con poca historia (§9.1, §10.2) | Pérdida L1 + Tweedie para totales; el grafo entró como feature del Problema 2 |
+| Despliegue → Evaluación | El período de control del monitoreo generó falsas alarmas (§11.2) | Cinco correcciones al diseño del monitoreo antes de evaluar 2026 |
+
 ---
 
-## 1. Contexto y objetivo
+## 1. Comprensión del negocio
 
-Chile es una economía muy abierta al comercio: cobre, litio, fruta, salmón y celulosa explican gran parte de
-sus exportaciones, y depende de importaciones de combustibles, maquinaria y bienes de consumo. El Servicio
-Nacional de Aduanas publica cada declaración de exportación (DUS) e importación (DIN) a nivel de ítem como
-datos abiertos.
+*Fase CRISP-DM: comprensión del negocio.*
 
-**Objetivo del proyecto:** construir un flujo completo de Data Science sobre esos registros:
+### 1.1 Problema
+Chile es una economía muy abierta al comercio: el comercio de bienes equivale a más de la mitad de su PIB.
+Sus exportaciones dependen de pocos productos (cobre, litio, fruta, salmón, celulosa) y de pocos mercados, y
+sus importaciones, de combustibles, maquinaria y bienes de consumo. Esa estructura expone a la economía a los
+precios internacionales y a la demanda de socios específicos. El Servicio Nacional de Aduanas publica cada
+declaración de exportación (DUS) e importación (DIN) a nivel de ítem como datos abiertos, una fuente detallada
+y poco explotada.
 
-1. Entender la estructura y la calidad de los datos (EDA).
-2. Representar el comercio como un grafo cuando aporte información que una tabla no entrega.
-3. Predecir el comportamiento de los meses siguientes (regresión y/o clasificación, según lo que permitan los datos).
-4. Evaluar los modelos contra baselines con validación temporal honesta.
-5. Monitorear drift en datos y en concepto, con umbrales y criterios de alerta definidos.
+No hubo un cliente real. Las preguntas se plantearon desde la perspectiva de un **analista de comercio
+exterior** o de una **agencia de promoción de exportaciones**: alguien que necesita entender qué está pasando,
+anticipar los próximos meses y saber cuándo confiar en sus modelos.
+
+### 1.2 Preguntas de negocio y objetivos analíticos
+
+| Pregunta de negocio | Objetivo analítico | Dónde se responde |
+|---|---|---|
+| P1. ¿Qué explica la evolución reciente del comercio chileno y cuán concentrado está? | Descomponer el crecimiento en precio y volumen; medir concentración y estacionalidad | §4 |
+| P2. ¿Qué productos comparten capacidades y hacia qué mercados puede diversificarse Chile? | Red de productos por capacidades compartidas; predecir nuevos pares producto–mercado | §7 |
+| P3. ¿Cuánto se comerciará los próximos meses y qué flujos esporádicos se repetirán? | Regresión del valor a 1–3 meses por producto × país; clasificación de actividad de series intermitentes | §8–§10 |
+| P4. ¿Cómo saber cuándo un modelo en producción deja de ser confiable? | Monitoreo de calidad de datos, drift y desempeño, con umbrales y acciones | §11 |
+
+Una quinta pregunta inicial, **el análisis por empresa** (comportamiento y continuidad de exportadores), se
+descartó en la fase de comprensión de los datos: los identificadores anonimizados se renumeran cada mes (§2.5).
+
+### 1.3 Criterios de éxito (fijados antes de evaluar)
+- **Datos:** los totales reconstruidos deben coincidir con las cifras oficiales (Banco Central), sin pérdida de
+  registros que no esté explicada.
+- **Grafo:** solo se justifica si mejora, fuera de tiempo, la predicción de nuevos pares producto–mercado
+  sobre un baseline sin grafo. Si no lo hace, se reporta como resultado negativo.
+- **Modelos:** superar al mejor baseline simple en el período de test (ene–ago 2026), evaluado una sola vez.
+  Durante la evaluación se agregó el requisito de respaldar la mejora con un intervalo de confianza.
+- **Monitoreo:** sin falsas alarmas en un período de control y con detección del cambio conocido de 2026,
+  usando umbrales definidos antes de mirar ese período.
+
+### 1.4 Restricciones
+Datos públicos y anonimizados; 32 meses de historia; sin precios internacionales de commodities; exportaciones
+valoradas FOB e importaciones CIF (no son directamente comparables).
 
 ---
 
 ## 2. Datos
+
+*Fase CRISP-DM: comprensión de los datos (descripción y verificación de la documentación).*
 
 ### 2.1 Fuentes
 
@@ -119,6 +175,8 @@ muy conectados).
 
 ## 3. Ingesta y calidad de datos
 
+*Fase CRISP-DM: comprensión de los datos (recolección inicial y verificación de calidad).*
+
 ### 3.1 Pipeline
 
 ```
@@ -167,6 +225,8 @@ Los 15,6 millones de ítems ocupan 1,35 GB en Parquet.
 ---
 
 ## 4. Análisis exploratorio (EDA)
+
+*Fase CRISP-DM: comprensión de los datos (exploración). Responde la pregunta P1.*
 
 Notebook: `notebooks/01_eda.ipynb` · Figuras: `reports/figures/01_*.png` a `08_*.png`.
 
@@ -235,6 +295,8 @@ Sin duplicados; > 99,9% de las declaraciones con Σ ítems = encabezado; 71 íte
 
 ## 5. Limpieza y preparación
 
+*Fase CRISP-DM: preparación de los datos (selección, limpieza, integración y formato).*
+
 Código: `src/comercio_chile/clean.py` → `data/processed/panel_{exportaciones,importaciones}.parquet`.
 
 **Unidad de análisis:** panel mensual `periodo × segmento × HS6 × país`, con `valor_usd`, `cantidad`,
@@ -252,6 +314,8 @@ nacionales que cambian con cada actualización del arancel chileno y romperían 
 | R5 Empresas | `n_empresas` se cuenta dentro del mes | Los IDs se renumeran cada mes |
 
 ## 6. Ingeniería de características
+
+*Fase CRISP-DM: preparación de los datos (construcción de atributos).*
 
 Código: `src/comercio_chile/features.py`. Se construye una **matriz densa serie × mes** (serie = flujo ×
 HS6 × país; 0 = mes sin comercio): 36.772 series de exportación y 86.200 de importación × 32 meses. Así
@@ -281,6 +345,8 @@ idénticos. **El test encontró un leakage real:** el ranking de los 40 países 
 reportados usan la versión corregida.
 
 ## 7. Construcción y análisis del grafo
+
+*Fase CRISP-DM: modelado descriptivo (§7.1–7.3) y su evaluación predictiva (§7.4). Responde la pregunta P2.*
 
 Notebook: `notebooks/02_grafo.ipynb` · Código: `src/comercio_chile/graph.py`, `activation.py` · Figuras `09`–`11`.
 
@@ -375,6 +441,8 @@ sensibles a los umbrales (los resultados predictivos son robustos a ellos).
 
 ## 8. Definición de los problemas predictivos
 
+*Fase CRISP-DM: modelado (selección de técnicas y diseño de la evaluación). Responde la pregunta P3.*
+
 El EDA mostró que las series producto–país son de dos tipos: **regulares** (comercio casi todos los meses;
 ~75% del valor) e **intermitentes** (comercio esporádico). Son dos preguntas distintas:
 
@@ -391,6 +459,8 @@ jul–dic 2025 (selección de configuración). **Test:** objetivos ene–ago 202
 configuración congelada.
 
 ## 9. Modelos y entrenamiento
+
+*Fase CRISP-DM: modelado (construcción y evaluación técnica de los modelos).*
 
 **Modelo:** LightGBM **global**, uno por flujo (y por horizonte en el P1), entrenado con todas las series a la
 vez. Un modelo por serie (ARIMA) tendría ~20 observaciones por serie; un modelo global aprende patrones
@@ -427,6 +497,8 @@ sin las features del grafo. El grafo de importaciones se construye con importado
 las mismas empresas).
 
 ## 10. Evaluación y comparación
+
+*Fase CRISP-DM: evaluación técnica de los modelos en el período de test. La evaluación frente a los objetivos de negocio está en §12.*
 
 ### 10.1 Problema 1 · Test ene–ago 2026 (WAPE)
 
@@ -512,6 +584,8 @@ Experimento (P1, L1, h = 1; universo de 20 meses objetivo, ene-2025 a ago-2026; 
 
 ## 11. Drift monitoring
 
+*Fase CRISP-DM: despliegue (plan de monitoreo y mantenimiento), en un despliegue simulado. Responde la pregunta P4.*
+
 Notebook: `notebooks/06_drift_monitoring.ipynb` · Código: `src/comercio_chile/drift.py` · Figuras `21`–`23`.
 
 **Escenario:** modelo P1 (L1, h = 1) entrenado una vez hasta dic-2025 y desplegado sin reentrenar en
@@ -565,10 +639,25 @@ hasta jun-2025 y monitoreado en jul–dic 2025.
   informar a negocio y revisar por segmento; alerta de desempeño → reentrenar y comparar; drift de precios +
   desempeño persistente → reentrenar e incorporar precios exógenos.
 
-## 12. Conclusiones
+## 12. Evaluación frente a los objetivos y conclusiones
 
-1. **Datos:** se construyó un pipeline reproducible para 15,6 M de registros (77 archivos descargados + 32
-   entregados), con 14 tipos de defectos reparados, 0 registros perdidos y totales validados contra el Banco
+*Fase CRISP-DM: evaluación (resultados frente a los objetivos de negocio y revisión del proceso).*
+
+| Pregunta | ¿Se respondió? | Evidencia | Límite |
+|---|---|---|---|
+| P1. Evolución y concentración | Sí | +26% en 2026 explicado por precios (cobre ~+50% en valor unitario, volumen a la baja); 27 productos = 80% del valor exportado | La descomposición precio/volumen solo es fiable en productos homogéneos |
+| P2. Capacidades y diversificación | Sí | Comunidades estables que cruzan la clasificación arancelaria; la densidad de relatedness mejora 17% la predicción de nuevos mercados fuera de tiempo | Solo datos de Chile; sin comparación con el resto del mundo |
+| P3. Próximos meses y flujos esporádicos | Sí, con un límite claro | WAPE 11–14% menor que el mejor baseline (1–3 meses, ambos flujos, 8 de 8 meses); AP +11–19% en flujos intermitentes | En commodities el modelo apenas mejora: su precio es exógeno a los datos |
+| P4. Confiabilidad en producción | Sí, en un despliegue simulado | 0 falsas alarmas en el control; detección del alza de precios y de la única degradación real (ene-2026) | Umbrales estimados con 4–6 meses; sin operación real |
+| Análisis por empresa | No (descartado) | IDs renumerados cada mes (§2.5) | Restricción de la anonimización, no del método |
+
+**Criterios de éxito (§1.3):** los cuatro se cumplieron. Los totales coinciden con el Banco Central, el grafo
+supera al baseline sin grafo (IC 95% de la mejora excluye el cero), los modelos superan al mejor baseline en el
+test (también con IC 95% que excluye el cero) y el monitoreo cumple la prueba de control y de detección.
+
+**Conclusiones:**
+1. **Datos:** se construyó un pipeline reproducible para 15,6 M de registros (93 archivos descargados de
+   datos.gob.cl), con 14 tipos de defectos reparados, 0 registros perdidos y totales validados contra el Banco
    Central. Se descubrió que los IDs de empresa se renumeran cada mes, lo que redefinió el alcance de todo el
    análisis.
 2. **EDA:** el crecimiento exportador de 2026 (+26%) es de **precios de commodities**, no de volumen; las
@@ -585,7 +674,34 @@ hasta jun-2025 y monitoreado en jul–dic 2025.
 7. **Drift:** un monitoreo de 4 capas, calibrado en un período de control, detectó el shock de 2026 y la única
    degradación real (ene-2026) sin falsas alarmas, y permitió distinguir data drift de concept drift.
 
-## 13. Limitaciones, mejoras y trabajo futuro
+**Revisión del proceso:** las decisiones con más impacto no fueron de algoritmo sino de comprensión de los
+datos y formulación (granularidad ítem/encabezado, IDs renumerados, escala del objetivo, función de pérdida).
+La práctica que más errores evitó fue contrastar cada conclusión con una prueba independiente: cifras
+oficiales, períodos de control, tests automatizados y baselines.
+
+## 13. Despliegue y entrega de resultados
+
+*Fase CRISP-DM: despliegue.*
+
+**No hay un despliegue productivo.** No existe un proceso programado que descargue los datos cada mes, ni un
+modelo servido por una API, ni un dashboard en operación. El despliegue se **simuló** en `notebooks/06`: un
+modelo congelado a diciembre de 2025 opera durante 2026 bajo el sistema de monitoreo, con un runbook de acciones
+por tipo de alerta (§11).
+
+**Cómo se entregan los resultados:**
+- **Repositorio público** con el pipeline como comandos reproducibles (`download` → `ingest` → `references` →
+  `clean`), tests anti-leakage y los seis notebooks ejecutados con sus resultados visibles.
+- **Este informe técnico** y el `README.md` como resumen para un lector nuevo.
+- **23 figuras** en `reports/figures/`, pensadas para comunicar los hallazgos fuera del código.
+- **Módulo de monitoreo** (`drift.py`) listo para ejecutarse mensualmente sobre datos nuevos.
+
+**Qué faltaría para un despliegue real:** orquestar la ejecución mensual cuando Aduana publica cada archivo
+(~1 mes de rezago), registrar versiones de los modelos, automatizar las alertas del runbook y exponer los
+pronósticos en un tablero o API para los usuarios de negocio.
+
+## 14. Limitaciones, mejoras y trabajo futuro
+
+*Fase CRISP-DM: evaluación (próximos pasos), que reinicia el ciclo.*
 
 **Limitaciones:**
 - Solo 32 meses: los gráficos de control y la estacionalidad se estiman con pocos ciclos.

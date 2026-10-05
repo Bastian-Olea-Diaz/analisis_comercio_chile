@@ -13,13 +13,43 @@ Chile es una economía pequeña y muy abierta: el comercio de bienes equivale a 
 exportaciones dependen de pocos productos (cobre, litio, fruta, salmón, celulosa) y de pocos mercados. Eso hace
 que la economía sea sensible a los precios internacionales y a la demanda de socios como China.
 
-El proyecto busca responder, con los registros oficiales de Aduana:
+El proyecto busca responder, con los registros oficiales de Aduana, cuatro preguntas planteadas desde la
+perspectiva de un analista de comercio exterior o una agencia de promoción de exportaciones:
 
-- Qué explica la evolución reciente del comercio chileno y cuán concentrado está.
-- Qué productos comparten capacidades productivas y hacia qué mercados se diversifica Chile.
-- Cuánto se comerciará en los próximos meses, a nivel de producto y país, y si un flujo esporádico se
-  repetirá.
-- Cómo detectar cuándo un modelo en producción deja de ser confiable porque los datos cambiaron.
+1. Qué explica la evolución reciente del comercio chileno y cuán concentrado está.
+2. Qué productos comparten capacidades productivas y hacia qué mercados puede diversificarse Chile.
+3. Cuánto se comerciará en los próximos meses, a nivel de producto y país, y si un flujo esporádico se
+   repetirá.
+4. Cómo detectar cuándo un modelo en producción deja de ser confiable porque los datos cambiaron.
+
+## Metodología: CRISP-DM
+
+El proyecto siguió el ciclo CRISP-DM (*Cross-Industry Standard Process for Data Mining*):
+
+| Fase | En este proyecto | Dónde |
+|---|---|---|
+| Comprensión del negocio | Cuatro preguntas, sus objetivos analíticos y criterios de éxito fijados antes de evaluar: superar a baselines simples fuera de tiempo, cuadrar los totales con cifras oficiales y monitorear sin falsas alarmas | `docs/PROYECTO.md` §1 |
+| Comprensión de los datos | Contraste de la documentación con los datos, verificación de calidad de 15,6 M de registros y análisis exploratorio | `ingest.py`, `01_eda` |
+| Preparación de los datos | Reparación de registros, imputación exacta de valores truncados, panel producto × país × mes y features sin leakage | `clean.py`, `features.py` |
+| Modelado | Red de capacidades productivas, modelo global de pronóstico y clasificador de flujos intermitentes, comparados contra baselines | `02_grafo`, `03_regresion`, `04_clasificacion` |
+| Evaluación | Test fuera de tiempo evaluado una sola vez, intervalos de confianza, tests anti-leakage, comparación de esquemas de validación y contraste de cada resultado con las preguntas iniciales | `05_esquemas_validacion`, `docs/PROYECTO.md` §10 y §12 |
+| Despliegue | Despliegue simulado: un modelo congelado opera durante 2026 bajo un sistema de monitoreo con umbrales y un runbook de acciones. Los resultados se entregan como repositorio reproducible, notebooks, figuras e informe técnico | `06_drift_monitoring`, `drift.py` |
+
+El ciclo fue iterativo. Algunos hallazgos obligaron a volver a fases anteriores:
+
+- **Datos → negocio:** con solo 8 meses de 2026 no era posible modelar la estacionalidad, por lo que el alcance se
+  amplió a 2024–2026. Al descubrir que los IDs de empresa se renumeran cada mes, se descartaron las preguntas por
+  empresa.
+- **Modelado → preparación:** un modelo global en escala absoluta subestimaba las series más grandes; el objetivo y
+  las features se reformularon como cambios relativos al nivel reciente.
+- **Evaluación → modelado:** el primer modelo perdía contra una media móvil; la pérdida se cambió a L1 y se agregó
+  un modelo Tweedie para los totales. Un test automatizado detectó una fuga de información, que se corrigió.
+- **Despliegue → evaluación:** el período de control del monitoreo reveló cinco errores de diseño, corregidos
+  antes de evaluar 2026.
+
+No hay un despliegue productivo (proceso programado, API o dashboard en operación). Esa etapa se cubrió con el
+despliegue simulado y con los entregables del repositorio; lo que faltaría para operarlo está descrito en el
+informe técnico (§13).
 
 ## Datos
 
@@ -90,6 +120,9 @@ de precios implícito y gráficos de control calibrados con el comportamiento de
 ajustaron en un **período de control** sin eventos, antes de evaluar el período con un shock de precios conocido.
 
 ## Resultados
+
+Los resultados siguen el orden de las cuatro preguntas. La evaluación frente a cada una, con sus límites, está
+en el informe técnico (§12).
 
 **El crecimiento exportador de 2026 es de precios, no de volumen.** Las exportaciones de bienes crecieron 26% en
 enero–agosto de 2026. En los cátodos de cobre, el valor unitario subió cerca de 50% sobre el promedio de 2024,
