@@ -1,4 +1,4 @@
-# Comercio exterior de Chile: análisis, grafos, forecasting y monitoreo de drift
+# Comercio exterior de Chile: análisis, grafos, forecasting, inferencia causal, experimentación y monitoreo de drift
 
 Informe técnico del proyecto. Registra qué se hizo, por qué y qué alternativas se descartaron en cada etapa.
 Los resultados numéricos provienen de los notebooks en `notebooks/`.
@@ -16,6 +16,8 @@ sección de este informe corresponde a una fase:
 | 4. Modelado | §7, §8, §9 | `graph.py`, `forecast.py`, `classify.py`; `notebooks/02`–`04` |
 | 5. Evaluación | §10 (técnica), §12 (frente a los objetivos) | Tests anti-leakage, baselines, `notebooks/05` |
 | 6. Despliegue | §11, §13 | Monitoreo de drift (`drift.py`, `notebooks/06`), repositorio, informe y figuras |
+| Segunda iteración del ciclo (pregunta causal) | §15 | `causal.py`, `tests/test_causal.py`; `notebooks/07` |
+| Tercera iteración del ciclo (experimento A/B/n) | §16 | `experiment.py`, `tests/test_experiment.py`; `notebooks/08` |
 
 CRISP-DM no es lineal: los hallazgos de una fase obligan a volver a otra. En este proyecto esas vueltas
 cambiaron el alcance y el diseño de forma concreta:
@@ -29,6 +31,10 @@ cambiaron el alcance y el diseño de forma concreta:
 | Evaluación → Preparación | Un test automatizado detectó leakage en la codificación de países (§6) | Ranking de socios calculado solo con el pasado; resultados recalculados |
 | Evaluación → Modelado | L2 en log subestimaba 46%; el grafo aportaba solo con poca historia (§9.1, §10.2) | Pérdida L1 + Tweedie para totales; el grafo entró como feature del Problema 2 |
 | Despliegue → Evaluación | El período de control del monitoreo generó falsas alarmas (§11.2) | Cinco correcciones al diseño del monitoreo antes de evaluar 2026 |
+| Evaluación → Negocio | Los modelos predictivos no responden preguntas de impacto ("¿cuánto afectó el arancel?") | Nueva pregunta P5 y segunda iteración del ciclo con inferencia causal (§15) |
+| Evaluación → Modelado | La triple diferencia no pasó su test de tendencias paralelas (§15.4) | La doble diferencia pasó a ser el diseño principal |
+| Evaluación → Negocio | Medir un efecto pasado no dice qué intervención conviene hacer | Nueva pregunta P6: diseño y análisis de un experimento A/B/n (§16) |
+| Evaluación → Diseño del experimento | Los tests A/A mostraron falsos positivos inflados con el análisis ingenuo y con revisiones mensuales (§16.3) | Errores agrupados por producto, SRM sobre la unidad aleatorizada y una sola revisión final |
 
 ---
 
@@ -56,8 +62,10 @@ anticipar los próximos meses y saber cuándo confiar en sus modelos.
 | P2. ¿Qué productos comparten capacidades y hacia qué mercados puede diversificarse Chile? | Red de productos por capacidades compartidas; predecir nuevos pares producto–mercado | §7 |
 | P3. ¿Cuánto se comerciará los próximos meses y qué flujos esporádicos se repetirán? | Regresión del valor a 1–3 meses por producto × país; clasificación de actividad de series intermitentes | §8–§10 |
 | P4. ¿Cómo saber cuándo un modelo en producción deja de ser confiable? | Monitoreo de calidad de datos, drift y desempeño, con umbrales y acciones | §11 |
+| P5. ¿Cuánto afectaron los aranceles de EE.UU. de 2025 a las exportaciones chilenas? (segunda iteración) | Estimar el efecto causal con diferencias en diferencias sobre un experimento natural | §15 |
+| P6. ¿Qué tipo de apoyo convierte una oportunidad de exportación en exportación? (tercera iteración) | Diseñar, validar y analizar un experimento A/B/n semi-sintético con resultados reales del control | §16 |
 
-Una quinta pregunta inicial, **el análisis por empresa** (comportamiento y continuidad de exportadores), se
+Otra pregunta inicial, **el análisis por empresa** (comportamiento y continuidad de exportadores), se
 descartó en la fase de comprensión de los datos: los identificadores anonimizados se renumeran cada mes (§2.5).
 
 ### 1.3 Criterios de éxito (fijados antes de evaluar)
@@ -69,6 +77,11 @@ descartó en la fase de comprensión de los datos: los identificadores anonimiza
   Durante la evaluación se agregó el requisito de respaldar la mejora con un intervalo de confianza.
 - **Monitoreo:** sin falsas alarmas en un período de control y con detección del cambio conocido de 2026,
   usando umbrales definidos antes de mirar ese período.
+- **Inferencia causal (P5, definido al diseñar la segunda iteración):** el diseño debe pasar un contraste de
+  tendencias paralelas y una prueba placebo. Si el efecto no es significativo, se reporta como nulo junto con el
+  efecto mínimo que el diseño podía detectar.
+- **Experimento (P6, definido al diseñar la tercera iteración):** el procedimiento debe dar ~5% de falsos
+  positivos en tests A/A con datos reales y recuperar sin sesgo el efecto inyectado.
 
 ### 1.4 Restricciones
 Datos públicos y anonimizados; 32 meses de historia; sin precios internacionales de commodities; exportaciones
@@ -649,11 +662,16 @@ hasta jun-2025 y monitoreado en jul–dic 2025.
 | P2. Capacidades y diversificación | Sí | Comunidades estables que cruzan la clasificación arancelaria; la densidad de relatedness mejora 17% la predicción de nuevos mercados fuera de tiempo | Solo datos de Chile; sin comparación con el resto del mundo |
 | P3. Próximos meses y flujos esporádicos | Sí, con un límite claro | WAPE 11–14% menor que el mejor baseline (1–3 meses, ambos flujos, 8 de 8 meses); AP +11–19% en flujos intermitentes | En commodities el modelo apenas mejora: su precio es exógeno a los datos |
 | P4. Confiabilidad en producción | Sí, en un despliegue simulado | 0 falsas alarmas en el control; detección del alza de precios y de la única degradación real (ene-2026) | Umbrales estimados con 4–6 meses; sin operación real |
+| P5. Efecto de los aranceles de EE.UU. (segunda iteración) | Sí, con un resultado nulo para el 10% | 10%: −12,6% no significativo (IC 95% −32% a +11%; p de permutación 0,52), efecto mínimo detectable ~29%. 50% al cobre semielaborado: −92% en toneladas a EE.UU., sin desvío a otros mercados | Un solo país tratado; ventana de cuatro meses antes de que cambiaran las reglas |
+| P6. Qué apoyo escalar (tercera iteración) | Sí, como diseño validado; el efecto es simulado | Tests A/A con datos reales: 6% de falsos positivos con errores agrupados (9% ingenuo) y 17% con revisiones mensuales sin corregir; en 500 repeticiones, estimaciones insesgadas y cobertura ~95% | El tamaño del efecto es un supuesto; no hay un experimento ejecutado |
 | Análisis por empresa | No (descartado) | IDs renumerados cada mes (§2.5) | Restricción de la anonimización, no del método |
 
 **Criterios de éxito (§1.3):** los cuatro se cumplieron. Los totales coinciden con el Banco Central, el grafo
 supera al baseline sin grafo (IC 95% de la mejora excluye el cero), los modelos superan al mejor baseline en el
-test (también con IC 95% que excluye el cero) y el monitoreo cumple la prueba de control y de detección.
+test (también con IC 95% que excluye el cero) y el monitoreo cumple la prueba de control y de detección. El
+criterio de la segunda iteración (P5) también se cumplió: el diseño principal no rechaza tendencias paralelas, se
+sometió a una prueba placebo y el resultado nulo se reporta con su efecto mínimo detectable. El de la tercera (P6)
+también: el análisis preregistrado da ~5–6% de falsos positivos en tests A/A y recupera el efecto inyectado.
 
 **Conclusiones:**
 1. **Datos:** se construyó un pipeline reproducible para 15,6 M de registros (93 archivos descargados de
@@ -673,6 +691,12 @@ test (también con IC 95% que excluye el cero) y el monitoreo cumple la prueba d
 6. **Validación:** las divisiones deben ser cronológicas; la ventana de test importa tanto como su tamaño.
 7. **Drift:** un monitoreo de 4 capas, calibrado en un período de control, detectó el shock de 2026 y la única
    degradación real (ene-2026) sin falsas alarmas, y permitió distinguir data drift de concept drift.
+8. **Inferencia causal (§15):** el arancel recíproco del 10% no tuvo un efecto distinguible de cero en sus
+   primeros cuatro meses (−12,6%, efecto mínimo detectable ~29%), mientras que el 50% al cobre semielaborado
+   eliminó el flujo a EE.UU. (−92% en toneladas).
+9. **Experimentación (§16):** un experimento A/B/n semi-sintético mostró que aleatorizar por producto, analizar
+   con errores agrupados y mirar el resultado una sola vez son condiciones necesarias: sin ellas, los falsos
+   positivos suben a 9% y 17%.
 
 **Revisión del proceso:** las decisiones con más impacto no fueron de algoritmo sino de comprensión de los
 datos y formulación (granularidad ítem/encabezado, IDs renumerados, escala del objetivo, función de pérdida).
@@ -690,9 +714,10 @@ por tipo de alerta (§11).
 
 **Cómo se entregan los resultados:**
 - **Repositorio público** con el pipeline como comandos reproducibles (`download` → `ingest` → `references` →
-  `clean`), tests anti-leakage y los seis notebooks ejecutados con sus resultados visibles.
+  `clean`), tests anti-leakage y de validación del estimador causal y del diseño experimental, y los ocho notebooks ejecutados con sus
+  resultados visibles.
 - **Este informe técnico** y el `README.md` como resumen para un lector nuevo.
-- **23 figuras** en `reports/figures/`, pensadas para comunicar los hallazgos fuera del código.
+- **29 figuras** en `reports/figures/`, pensadas para comunicar los hallazgos fuera del código.
 - **Módulo de monitoreo** (`drift.py`) listo para ejecutarse mensualmente sobre datos nuevos.
 
 **Qué faltaría para un despliegue real:** orquestar la ejecución mensual cuando Aduana publica cada archivo
@@ -721,14 +746,232 @@ pronósticos en un tablero o API para los usuarios de negocio.
 
 ---
 
+## 15. Inferencia causal: efecto de los aranceles de EE.UU. de 2025
+
+*Segunda iteración del ciclo CRISP-DM, con una pregunta nueva (P5). Notebook: `notebooks/07_inferencia_causal`;
+módulo: `causal.py`.*
+
+### 15.1 Por qué una segunda iteración
+Los modelos de §8–§10 predicen, y para predecir basta con que una variable anticipe el resultado. Una pregunta
+de impacto ("¿cuánto afectó el arancel?") exige otra cosa: comparar lo que pasó con lo que habría pasado sin el
+arancel, un contrafactual que nunca se observa. Como no se puede experimentar, se usa un **experimento natural**:
+EE.UU. impuso aranceles en fechas conocidas, a un destino y no a los otros, y a unos productos y no a otros.
+
+### 15.2 Comprensión del negocio: las medidas
+Para Chile, lo relevante en 2025–2026 fue: el arancel recíproco del 10% (desde el 5-abr-2025, con exenciones
+listadas en el Annex II de la EO 14257); el 50% de la Sección 232 al cobre semielaborado (desde el 1-ago-2025,
+anunciado el 8-jul; el cátodo quedó exento); tasas mayores para varios competidores desde el 7-ago-2025 (Chile se
+mantuvo en 10%); cambios al Annex II (8-sep), la Sección 232 a la madera (14-oct) y la exención agrícola (13-nov);
+y el fallo de la Corte Suprema que anuló los aranceles IEEPA (20-feb-2026), reemplazados por un 10% transitorio de
+la Sección 122 hasta el 24-jul-2026. Fuentes en el Anexo B.
+
+Consecuencia para el diseño: la **ventana principal es abril–julio de 2025**, cuando casi todos los proveedores
+de EE.UU. pagaban el mismo 10%. Después, el tratamiento deja de ser uniforme y los meses solo se describen.
+
+### 15.3 Preparación de los datos
+- **Panel balanceado** producto (HS6) × destino × mes con **ceros explícitos** (848 mil filas; 73% ceros). Si el
+  arancel hace desaparecer un flujo, ese cero es el efecto. Entran los pares con comercio *antes* del arancel:
+  elegir la muestra con meses posteriores la condicionaría al resultado (verificado en `tests/test_causal.py`).
+- **Clasificación de productos** con el Annex II oficial (PDF de la Casa Blanca → 1.039 subpartidas de 8 dígitos
+  de EE.UU. → 610 HS6). Si el anexo lista la subpartida completa (`hs6 + "00"`), el HS6 es exento; si lista solo
+  algunas aperturas, es **exento parcial** y se excluye, porque no se sabe qué parte del flujo pagó.
+- **Exclusiones:** acero, aluminio y automóviles (Sección 232 propia), cobre (Sección 232 desde agosto y arbitraje
+  del cátodo durante la investigación) y metales preciosos (dudas arancelarias sobre el oro). El cátodo es el
+  principal producto chileno en EE.UU., pero mezclar su arbitraje con el arancel recíproco contaminaría la
+  estimación.
+- **Seis celdas con valor negativo** (correcciones de declaraciones, US$ 1.300 en total) se llevan a cero: PPML
+  exige valores no negativos.
+
+### 15.4 Modelado: de la triple a la doble diferencia
+**Estimador: PPML** (Poisson pseudo-máxima verosimilitud con efectos fijos, `pyfixest`), el estándar para flujos
+de comercio: admite ceros, es consistente bajo heterocedasticidad (Santos Silva y Tenreyro, 2006) y pondera por
+valor. Errores estándar agrupados por producto.
+
+**Diseño planeado: triple diferencia** (EE.UU. vs otros destinos × gravados vs exentos × antes vs después), con
+efectos fijos par, producto × mes y destino × mes. En teoría separa el arancel de cualquier shock propio de EE.UU.
+**No pasó su contraste:** el test conjunto de pretendencias rechaza (p = 0,001). Chile vende a EE.UU. solo 40
+productos exentos, dominados por embarques irregulares de madera, yodo y litio, y la brecha gravados–exentos ya
+se movía antes del arancel.
+
+**Diseño principal: doble diferencia** con los productos gravados (EE.UU. vs otros destinos del mismo producto),
+con efectos fijos producto × destino (nivel de cada flujo) y producto × mes (precios, cosechas, oferta). Sus
+pretendencias no rechazan al 5% (p = 0,08 con todo el período; aval débil, porque el test tiene poca potencia).
+Ambos diseños dan casi la misma estimación puntual, así que el cambio no responde a buscar un resultado.
+
+**Alternativas descartadas:**
+- *Antes/después simple:* confunde el arancel con todo lo demás que cambió (precios, demanda mundial).
+- *Regresión en log(1 + y):* el resultado depende de la unidad de medida y está sesgado con heterocedasticidad.
+- *Control sintético para el arancel recíproco:* hay cientos de unidades tratadas (productos), no una; el
+  panel con efectos fijos aprovecha mejor esa estructura.
+
+### 15.5 Evaluación
+
+| Especificación | Efecto | IC 95% | p |
+|---|---|---|---|
+| **Principal: doble diferencia, abr–jul 2025** | **−12,6%** | [−31,5%, +11,4%] | 0,28 |
+| Sin ene–mar 2025 (posible anticipación) | −12,1% | [−30,1%, +10,5%] | 0,27 |
+| Ventana abr–ago 2025 | −12,6% | [−30,6%, +10,0%] | 0,25 |
+| Sin filete de salmón (mayor flujo) | −13,6% | [−32,9%, +11,4%] | 0,26 |
+| Sin salmón (partida 0304) | −21,2% | [−38,2%, +0,5%] | 0,06 |
+| Triple diferencia (pretendencias rechazadas) | −12,7% | [−39,3%, +25,4%] | 0,46 |
+
+- **Event study:** febrero de 2025 muestra un salto de +28% (adelanto de embarques, el único mes significativo);
+  abril–julio, coeficientes entre −5% y −10%, ninguno significativo.
+- **Placebo en otros destinos:** asignando un arancel ficticio a cada uno de los 30 mayores destinos, la mitad
+  muestra un cambio igual o más extremo que EE.UU. (p de permutación = 0,52). Con un solo país tratado, esta
+  prueba es más confiable que los errores agrupados.
+- **Potencia:** el efecto mínimo detectable (80% de potencia, 5% de significancia) es ~−29%. El diseño descarta
+  una caída grande e inmediata, no una moderada.
+- **Validación del estimador:** en datos simulados con la estructura del panel, la doble diferencia recupera
+  efectos conocidos de −30%, −10% y 0% (`tests/test_causal.py`).
+- **Sin salmón** la caída es mayor (p = 0,06), pero no se trata como hallazgo: después de varias
+  especificaciones, un p de 0,06 en una de ellas es esperable por azar.
+
+**Lectura económica:** un efecto pequeño es plausible. Entre abril y julio casi todos los proveedores pagaban el
+mismo 10%, así que el comprador estadounidense no tenía a quién cambiarse; la ventana es corta para reorganizar
+contratos; y el valor FOB no cambia si el importador absorbe el arancel.
+
+### 15.6 Estudio de caso: 50% al cobre semielaborado
+Afecta casi solo al alambre de cobre (7408), así que no hay panel para una diferencia en diferencias. Se mide en
+**toneladas** (en dólares, el alza del cobre de 2026 se confundiría con volumen), comparando ene-2024–jul-2025 con
+ago-2025–ago-2026, con intervalos por bootstrap de bloques de 3 meses (conserva la autocorrelación mensual).
+
+| Destino | Antes (t/mes) | Después (t/mes) | Cambio | IC 95% |
+|---|---|---|---|---|
+| EE.UU. | 720 | 58 | −92% | [−819, −503] t/mes |
+| Resto del mundo | 2.898 | 2.701 | −7% | [−763, +615] t/mes |
+| Total | 3.617 | 2.759 | −24% | [−1.471, +25] t/mes |
+
+El flujo a EE.UU. prácticamente desapareció, después de un máximo en julio de 2025 (adelanto de embarques entre
+el anuncio y la vigencia). No hay evidencia de que el volumen se recolocara en otros mercados. La fuerza de esta
+evidencia es la nitidez del corte, no la sofisticación del modelo; un control sintético agregaría poco frente a
+una caída de 92% en la fecha exacta de vigencia.
+
+### 15.7 Limitaciones
+- Un solo país tratado: la inferencia del arancel recíproco descansa en una comparación con un único EE.UU.
+- Tendencias paralelas con un aval débil; la triple diferencia, que habría controlado shocks propios de EE.UU.,
+  no pasó su contraste.
+- Desvío de comercio: si Chile vendió más a otros destinos por el arancel, el grupo de control también cambió
+  (violación de SUTVA) y la caída en EE.UU. queda sobrestimada.
+- Valor FOB: no muestra quién pagó el arancel ni el precio final en EE.UU.
+- Clasificación aproximada: el Annex II está en 8 dígitos de EE.UU. y los datos en 6 dígitos del Sistema
+  Armonizado; los casos ambiguos se excluyeron.
+
+### 15.8 Conclusiones
+1. **10% recíproco:** caída estimada de ~12% en abril–julio de 2025, no distinguible de cero; se descarta un efecto
+   mayor a ~29%.
+2. **50% al cobre semielaborado:** efecto inequívoco, −92% en toneladas a EE.UU., sin desvío a otros mercados.
+3. **La dosis importa:** un 10% que pagan casi todos los competidores casi no se nota; un 50% específico elimina el
+   flujo.
+4. **Lección de método:** el diseño más completo en el papel no siempre es el mejor. Lo que decide es si su
+   supuesto se sostiene en los datos, y eso se revisa antes de interpretar el resultado.
+
+---
+
+## 16. Experimento A/B/n semi-sintético: qué apoyo convierte una oportunidad en exportación
+
+*Tercera iteración del ciclo CRISP-DM (P6). Notebook: `notebooks/08_experimento_ab`; módulo: `experiment.py`.*
+
+### 16.1 Por qué semi-sintético
+Los datos de Aduana son observacionales: no hay ninguna intervención asignada al azar, así que no permiten un
+A/B test real. Lo que sí permiten es construir uno **semi-sintético** donde todo lo que depende del ruido de los
+datos es real y solo el efecto del tratamiento es un supuesto:
+
+| Componente | Origen |
+|---|---|
+| 10.000 oportunidades (pares producto–país no exportados en 2025, mejor rankeados por el modelo con grafo de §7.4) | Real |
+| Covariables previas (puntaje, comercio del par en 2024 y 2025) | Real |
+| Resultado sin tratamiento Y(0): exportar ≥ US$ 10.000 en ene–ago 2026, con su trayectoria mensual | Real |
+| Asignación a brazos | Aleatoria |
+| Efecto de cada tratamiento | Supuesto, inyectado sobre Y(0): B 0%, C +30%, D +40% relativo |
+
+Como el efecto verdadero se conoce, el procedimiento se puede validar (sesgo, cobertura, potencia, error tipo I).
+El notebook no afirma que ninguna campaña funcione.
+
+### 16.2 Diseño (preregistro)
+- **Brazos:** A control; B alerta informativa (US$ 50); C rueda de negocios (US$ 1.500); D rueda + misión
+  comercial (US$ 4.000). Los costos son supuestos.
+- **Métrica principal:** activación binaria. El valor exportado se descartó por su cola pesada (mediana ~US$ 33 mil
+  vs promedio ~US$ 195 mil por par activado).
+- **Unidad de aleatorización: el producto (HS6)**, no el par. Las campañas de un producto llegan a los mismos
+  exportadores en todos los destinos, así que aleatorizar pares contaminaría el control. Aleatorización
+  estratificada por puntaje.
+- **Costo de aleatorizar por grupos:** ICC por producto = 0,026 y tamaño efectivo de grupo 14,4 → efecto de
+  diseño 1,34 (un tercio más de muestra).
+- **CUPED** con covariables previas: R² = 6,8%. Con una métrica binaria y poco frecuente, el aporte es modesto.
+- **Asignación** √3 : 1 : 1 : 1 (control más grande, porque participa en las tres comparaciones).
+- **Comparaciones múltiples:** Holm (familia de 3 comparaciones contra el control); Dunnett como contraste.
+- **Potencia:** con tres tratamientos, el efecto mínimo detectable planificado es ~31% relativo, cercano al 30% que
+  interesa al negocio. Un cuarto tratamiento ya no habría alcanzado; distinguir C de D tampoco.
+- **Detención:** el resultado se mira una sola vez, al final.
+
+### 16.3 Validación del procedimiento con datos reales
+| Prueba | Resultado |
+|---|---|
+| 1.000 tests A/A, análisis ingenuo (pares independientes) | 8,9% de falsos positivos (debería ser 5%) |
+| 1.000 tests A/A, errores agrupados por producto | 6,1% |
+| SRM sobre los pares en 300 aleatorizaciones correctas | Falsa alarma (p < 0,001) en el 38% |
+| SRM sobre los productos (unidad aleatorizada) | 0% de falsas alarmas |
+| Revisar el resultado cada mes con 1,96 (*peeking*), 1.000 A/A con trayectorias reales | 17,0% de falsos positivos |
+| Revisar cada mes con fronteras de O'Brien–Fleming | 5,6% |
+
+### 16.4 Resultados (simulados)
+Test global: p < 0,001. Con CUPED y Holm: C +3,8 pp (+38% relativo) y D +4,4 pp (+43%), ambos con p ajustado
+< 0,001; B +0,5 pp, no significativo. Sin ajuste, C aparecía en +48%: el brazo había recibido por azar
+oportunidades con algo más de comercio previo (diferencia estandarizada 0,10), y CUPED corrigió ese desbalance.
+
+**Monte Carlo (500 repeticiones del experimento completo):** estimaciones insesgadas en los tres brazos,
+cobertura de los IC 95% entre 94% y 96%, potencia de 93% para C con CUPED (87% sin ajuste) y error tipo I de 5,4%
+en el brazo sin efecto.
+
+**Decisión:** costo por activación adicional ~US$ 39 mil para C (IC US$ 27–72 mil) y ~US$ 92 mil para D. Como el
+diseño no puede distinguir C de D, se escala la opción más barata (C); B no tiene evidencia de efecto.
+
+### 16.5 Limitaciones
+- El efecto y su forma (proporcional a la probabilidad base) son supuestos; el notebook valida el método, no las
+  campañas.
+- Aleatorizar por producto no evita el contagio entre productos relacionados (que comparten exportadores según
+  la red de §7); aleatorizar por comunidad de la red lo evitaría con mucha más varianza.
+- Sin métricas de resguardo reales (satisfacción, costo operativo), que no existen en estos datos.
+
+---
+
 ## Anexo A. Reproducibilidad
 
-Requisitos: Python 3.11+ y UnRAR (incluido en WinRAR; en Linux/macOS, paquete `unrar`). Ver el README para
-los comandos completos. Orden del pipeline: `download` → `ingest` → `references` → `clean` → tests →
-notebooks 01–06.
+Requisitos: Python 3.11 o superior y UnRAR (incluido en WinRAR en Windows; paquete `unrar` en Linux y macOS, o la
+variable de entorno `UNRAR` con la ruta al ejecutable).
+
+```bash
+python -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
+
+python -m comercio_chile.download    # ~1 GB desde datos.gob.cl
+python -m comercio_chile.ingest      # archivos crudos -> data/interim (Parquet)
+python -m comercio_chile.references  # tablas de códigos de Aduana
+python -m comercio_chile.clean       # panel producto × país × mes -> data/processed
+python -m comercio_chile.causal      # lista de exenciones del Annex II (EE.UU.) por HS6
+python -m pytest tests
+
+python -m ipykernel install --user --name comercio-chile
+jupyter nbconvert --to notebook --execute --inplace notebooks/0*.ipynb
+```
+
+La ingesta completa toma unos 30 minutos; el notebook de regresión, unos 25, y el de inferencia causal y el del experimento, unos 5 cada uno.
 
 ## Anexo B. Fuentes
 
 - Diccionario de datos DUS/DIN: https://datos.gob.cl/dataset/diccionario-de-datos-para-datos-abiertos-aduana
 - Registros de exportación/importación: https://datos.gob.cl/organization/servicio_nacional_de_aduanas
 - Tablas de códigos (Anexo 51): https://www.aduana.cl/compendio-de-normas-anexo-51/aduana/2009-11-19/163937.html
+- EO 14257 (arancel recíproco) y su Annex II: https://www.whitehouse.gov/wp-content/uploads/2025/04/eo-14257.pdf,
+  https://www.whitehouse.gov/wp-content/uploads/2025/04/Annex-II.pdf
+- Sección 232 al cobre: https://www.whitecase.com/insight-alert/president-trump-orders-50-percent-section-232-tariff-copper-imports
+- EO 14326 (tasas desde el 7-ago-2025): https://www.whitehouse.gov/presidential-actions/2025/07/further-modifying-the-reciprocal-tariff-rates/
+- EO 14346 (cambios al Annex II): https://www.presidency.ucsb.edu/documents/executive-order-14346-modifying-the-scope-reciprocal-tariffs-and-establishing-procedures
+- Sección 232 a la madera: https://www.internationaltradeinsights.com/2025/09/section-232-tariffs-on-timber-lumber-and-certain-wood-products-take-effect-on-october-14/
+- Exención agrícola: https://www.federalregister.gov/documents/2025/11/25/2025-21203/modifying-the-scope-of-the-reciprocal-tariffs-with-respect-to-certain-agricultural-products
+- Fallo de la Corte Suprema sobre IEEPA: https://www.hklaw.com/en/insights/publications/2026/02/supreme-court-strikes-down-ieepa-tariffs
+- Sección 122: https://globaltradealert.org/blog/from-ieepa-to-section-122
+- Santos Silva, J. y Tenreyro, S. (2006). The Log of Gravity. *The Review of Economics and Statistics*, 88(4).
