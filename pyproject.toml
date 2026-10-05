@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comercio-chile"
+version = "0.1.0"
+description = "Análisis, grafos, forecasting y drift monitoring del comercio exterior de Chile (datos abiertos de Aduana)"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]

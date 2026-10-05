@@ -1,0 +1,99 @@
+capitulo,seccion,glosa_corta
+01,I,Animales vivos
+02,I,Carne
+03,I,Pescados y mariscos
+04,I,Lácteos y huevos
+05,I,Otros productos animales
+06,II,Plantas y flores
+07,II,Hortalizas
+08,II,Frutas y frutos secos
+09,II,Café y especias
+10,II,Cereales
+11,II,Productos de molinería
+12,II,Semillas oleaginosas
+13,II,Gomas y resinas
+14,II,Materias trenzables
+15,III,Grasas y aceites
+16,IV,Preparaciones de carne y pescado
+17,IV,Azúcares
+18,IV,Cacao
+19,IV,Preparaciones de cereales
+20,IV,Conservas de hortalizas y frutas
+21,IV,Preparaciones alimenticias diversas
+22,IV,Bebidas y vinos
+23,IV,Residuos alimentarios y piensos
+24,IV,Tabaco
+25,V,"Sal, azufre, piedras, cemento"
+26,V,Minerales metalíferos
+27,V,Combustibles minerales
+28,VI,Química inorgánica
+29,VI,Química orgánica
+30,VI,Productos farmacéuticos
+31,VI,Abonos
+32,VI,Tintas y pinturas
+33,VI,Aceites esenciales y cosméticos
+34,VI,Jabones y detergentes
+35,VI,Materias albuminoideas
+36,VI,Pólvoras y explosivos
+37,VI,Productos fotográficos
+38,VI,Productos químicos diversos
+39,VII,Plástico
+40,VII,Caucho
+41,VIII,Cueros
+42,VIII,Manufacturas de cuero
+43,VIII,Peletería
+44,IX,Madera
+45,IX,Corcho
+46,IX,Cestería
+47,X,Pasta de celulosa
+48,X,Papel y cartón
+49,X,Productos editoriales
+50,XI,Seda
+51,XI,Lana
+52,XI,Algodón
+53,XI,Otras fibras vegetales
+54,XI,Filamentos sintéticos
+55,XI,Fibras sintéticas discontinuas
+56,XI,Guata y cordelería
+57,XI,Alfombras
+58,XI,Tejidos especiales
+59,XI,Tejidos técnicos
+60,XI,Tejidos de punto
+61,XI,Prendas de punto
+62,XI,Prendas excepto de punto
+63,XI,Otros artículos textiles
+64,XII,Calzado
+65,XII,Sombreros
+66,XII,Paraguas
+67,XII,Plumas y flores artificiales
+68,XIII,Manufacturas de piedra
+69,XIII,Cerámica
+70,XIII,Vidrio
+71,XIV,Metales preciosos y joyería
+72,XV,Fundición de hierro y acero
+73,XV,Manufacturas de hierro y acero
+74,XV,Cobre y sus manufacturas
+75,XV,Níquel
+76,XV,Aluminio
+78,XV,Plomo
+79,XV,Zinc
+80,XV,Estaño
+81,XV,Otros metales comunes
+82,XV,Herramientas
+83,XV,Manufacturas diversas de metal
+84,XVI,Maquinaria y reactores
+85,XVI,Máquinas y material eléctrico
+86,XVII,Material ferroviario
+87,XVII,Vehículos
+88,XVII,Aeronaves
+89,XVII,Barcos
+90,XVIII,Instrumentos de óptica y medicina
+91,XVIII,Relojería
+92,XVIII,Instrumentos musicales
+93,XIX,Armas
+94,XX,Muebles
+95,XX,Juguetes
+96,XX,Manufacturas diversas
+97,XXI,Objetos de arte
+98,—,Disposiciones especiales (Chile)
+00,—,Servicios (no SA)
