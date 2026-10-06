@@ -3,6 +3,8 @@
 Paleta categórica validada para daltonismo (orden fijo, nunca ciclado), marcas finas,
 grilla recesiva y etiquetas directas. Todas las figuras del proyecto usan este módulo.
 """
+import logging
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
@@ -23,10 +25,15 @@ IMPORT = SERIES[1]   # importaciones: naranjo en todo el proyecto
 
 
 def setup() -> None:
+    # Tipografía: Franklin Gothic Medium (incluida en Windows). DejaVu Sans cubre los símbolos que le faltan
+    # (∝, por ejemplo) y la reemplaza en sistemas sin ella. Como tiene un solo peso, la negrita se pide pero no
+    # existe: se silencia el aviso y los títulos se distinguen por tamaño.
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
     mpl.rcParams.update({
+        "font.family": ["Franklin Gothic Medium", "DejaVu Sans"],
         "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
         "figure.dpi": 110, "savefig.dpi": 160, "savefig.bbox": "tight",
-        "font.size": 10, "axes.titlesize": 12, "axes.titleweight": "bold", "axes.titlelocation": "left", "axes.titlepad": 20,
+        "font.size": 10, "axes.titlesize": 13, "axes.titleweight": "normal", "axes.titlelocation": "left", "axes.titlepad": 20,
         "axes.labelcolor": TEXT_2, "xtick.color": TEXT_2, "ytick.color": TEXT_2, "text.color": TEXT,
         "axes.edgecolor": GRID, "axes.spines.top": False, "axes.spines.right": False,
         "axes.grid": True, "axes.grid.axis": "y", "grid.color": GRID, "grid.linewidth": 0.8,
