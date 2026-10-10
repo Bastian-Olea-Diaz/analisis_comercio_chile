@@ -5,7 +5,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-DATA = ROOT / "data"
+# COMERCIO_CHILE_DATA permite usar el paquete desde otro proyecto (p. ej. un pipeline en producción) con su
+# propia carpeta de datos; por defecto se usa data/ dentro de este repositorio.
+DATA = Path(os.environ.get("COMERCIO_CHILE_DATA", ROOT / "data"))
 RAW = DATA / "raw"            # archivos descargados (.rar/.zip) + manifest.csv
 INTERIM = DATA / "interim"    # parquet tipado, 1 fila = 1 ítem de declaración
 PROCESSED = DATA / "processed"

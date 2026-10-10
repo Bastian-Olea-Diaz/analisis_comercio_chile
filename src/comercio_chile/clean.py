@@ -39,10 +39,13 @@ def impute_truncated(df: pd.DataFrame, f: dict) -> dict:
             "valor_imputado_usd": float(df.loc[target, f["item_value"]].sum())}
 
 
-def build_panel(flow: str) -> tuple[pd.DataFrame, dict]:
+def build_panel(flow: str, periods: list[str] | None = None) -> tuple[pd.DataFrame, dict]:
+    """Panel mensual hs6 × país. Con `periods` ('AAAA-MM') se construyen solo esos meses: cada mes es
+    independiente, así que un pipeline incremental puede agregar meses nuevos sin reprocesar la historia."""
     f = FIELDS[flow]
     extra = ["TIPOOPERACION", "PESOBRUTOITEM"] if flow == "exportaciones" else []
-    df = load(flow, [f[k] for k in ("decl", "item_value", "header_value", "hs", "partner", "trader", "qty")] + extra)
+    df = load(flow, [f[k] for k in ("decl", "item_value", "header_value", "hs", "partner", "trader", "qty")] + extra,
+              periods=periods)
 
     stats = impute_truncated(df, f)
     df = df.dropna(subset=[f["item_value"]])  # más de un ítem nulo en la declaración: no imputable

@@ -38,8 +38,12 @@ class Grid:
 
 
 def load_grid(flow: str) -> Grid:
-    p = pd.read_parquet(PROCESSED / f"panel_{flow}.parquet")
-    p = p[(p.segmento == "bienes") & ~p.pseudo_pais & (p.hs6 != "000000")]
+    return grid_from_panel(pd.read_parquet(PROCESSED / f"panel_{flow}.parquet"), flow)
+
+
+def grid_from_panel(panel: pd.DataFrame, flow: str) -> Grid:
+    """Matrices serie × mes a partir del panel (bienes, socios reales, código arancelario válido)."""
+    p = panel[(panel.segmento == "bienes") & ~panel.pseudo_pais & (panel.hs6 != "000000")].copy()
     p["periodo"] = p.periodo.astype(str)
     keys = p[["hs6", "pais"]].drop_duplicates().sort_values(["hs6", "pais"]).reset_index(drop=True)
     months = pd.period_range(p.periodo.min(), p.periodo.max(), freq="M")

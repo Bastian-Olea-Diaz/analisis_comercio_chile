@@ -7,6 +7,14 @@ name = "comercio-chile"
 version = "0.1.0"
 description = "Análisis, grafos, forecasting y drift monitoring del comercio exterior de Chile (datos abiertos de Aduana)"
 requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.2", "pandas>=2.2", "pyarrow>=17.0", "openpyxl>=3.1", "requests>=2.32", "scipy>=1.13",
+    "scikit-learn>=1.5", "lightgbm>=4.5", "networkx>=3.3", "pyfixest>=0.30", "pypdf>=5.0", "matplotlib>=3.9",
+]
+
+[project.optional-dependencies]
+notebooks = ["jupyterlab>=4.2", "ipykernel>=6.29"]
+dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

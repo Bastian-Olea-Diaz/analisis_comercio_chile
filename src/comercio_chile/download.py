@@ -25,9 +25,32 @@ FILE_RE = re.compile(
 )
 
 
+CKAN_SEARCH = CKAN_API.replace("package_show", "package_search")
+DATASET_RE = re.compile(r"^registro-de-(?P<flow>exportacion|importacion)(?:es)?-(?P<year>\d{4})$")
+
+
+def find_dataset(flow: str, year: int) -> str | None:
+    """Identificador del dataset de un flujo y año. Los nombres publicados no siguen un patrón fijo
+    ("registro-de-exportaciones-2025", "registro-de-exportacion-2026"), así que los años que no están en
+    CKAN_DATASETS se buscan en el catálogo de Aduanas. None si el año aún no se publica."""
+    if (flow, year) in CKAN_DATASETS:
+        return CKAN_DATASETS[(flow, year)]
+    resp = requests.get(CKAN_SEARCH, params={"q": str(year), "fq": "organization:servicio_nacional_de_aduanas",
+                                             "rows": 100}, timeout=60)
+    resp.raise_for_status()
+    for pkg in resp.json()["result"]["results"]:
+        m = DATASET_RE.match(pkg["name"])
+        if m and int(m["year"]) == year and flow.startswith(m["flow"]):
+            return pkg["name"]
+    return None
+
+
 def list_resources(flow: str, year: int) -> list[dict]:
     """Recursos mensuales principales (sin bultos/documentos) de un dataset CKAN."""
-    resp = requests.get(CKAN_API, params={"id": CKAN_DATASETS[(flow, year)]}, timeout=60)
+    dataset = find_dataset(flow, year)
+    if dataset is None:
+        return []
+    resp = requests.get(CKAN_API, params={"id": dataset}, timeout=60)
     resp.raise_for_status()
     out = []
     for res in resp.json()["result"]["resources"]:
